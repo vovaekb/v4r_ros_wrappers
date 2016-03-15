@@ -5,6 +5,8 @@
 #include <image_transport/image_transport.h>
 #include <pcl/visualization/cloud_viewer.h>
 #include <v4r/recognition/multi_pipeline_recognizer.h>
+#include <art_object_recognizer_msgs/ObjInstance.h>
+#include <art_object_recognizer_msgs/InstancesArray.h>
 
 namespace v4r
 {
@@ -15,6 +17,8 @@ private:
     typedef Model<PointT> ModelT;
     typedef boost::shared_ptr<ModelT> ModelTPtr;
     typedef pcl::Histogram<128> FeatureT;
+    typedef art_object_recognizer_msgs::ObjInstance ObjInstanceT;
+    typedef art_object_recognizer_msgs::InstancesArray InstancesArrayT;
 
     boost::shared_ptr<MultiRecognitionPipeline<PointT> > rr_;
     bool visualize_;
