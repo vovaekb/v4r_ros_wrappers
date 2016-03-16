@@ -12,6 +12,9 @@
 #include <v4r/recognition/local_recognizer.h>
 #include <v4r/recognition/recognizer.h>
 #include <v4r/recognition/registered_views_source.h>
+#include <art_object_recognizer_msgs/ObjInstance.h>
+#include <art_object_recognizer_msgs/InstancesArray.h>
+#include <pcl/shape_msgs/SolidPrimitive.h>
 
 #include <pcl/common/centroid.h>
 #include <pcl/console/parse.h>
@@ -19,6 +22,7 @@
 
 #include <iostream>
 #include <sstream>
+#include <vector>
 #include <time.h>
 #include <stdlib.h>
 
@@ -62,6 +66,9 @@ RecognizerROS<PointT>::respondSrvCall(recognition_srv_definitions::recognize::Re
 
     ConvertPCLCloud2Image<PointT>(scene_, annotated_img);
 
+    std::vector<ObjInstanceT> instances;
+    InstancesArrayT instances_arr_msg;
+
     for (size_t j = 0; j < models_verified_.size(); j++)
     {
       std_msgs::String ss_tmp;
@@ -74,6 +81,11 @@ RecognizerROS<PointT>::respondSrvCall(recognition_srv_definitions::recognize::Re
       tt.translation.y = trans(1,3);
       tt.translation.z = trans(2,3);
 
+      geometry_msgs::Pose pose;
+      pose.position.x = trans(0,3);
+      pose.position.y = trans(1,3);
+      pose.position.z = trans(2,3);
+
       Eigen::Matrix3f rotation = trans.block<3,3>(0,0);
       Eigen::Quaternionf q(rotation);
       tt.rotation.x = q.x();
@@ -81,6 +93,11 @@ RecognizerROS<PointT>::respondSrvCall(recognition_srv_definitions::recognize::Re
       tt.rotation.z = q.z();
       tt.rotation.w = q.w();
       response.transforms.push_back(tt);
+
+      pose.orientation.x = q.x();
+      pose.orientation.y = q.y();
+      pose.orientation.z = q.z();
+      pose.orientation.w = q.w();
 
       typename pcl::PointCloud<PointT>::ConstPtr model_cloud = models_verified_[j]->getAssembled ( resolution_ );
       typename pcl::PointCloud<PointT>::Ptr model_aligned (new pcl::PointCloud<PointT>);
@@ -120,6 +137,8 @@ RecognizerROS<PointT>::respondSrvCall(recognition_srv_definitions::recognize::Re
       Eigen::Vector4f max;
       pcl::getMinMax3D (*model_aligned, min, max);
 
+      float x_len, y_len, z_len; // lengths of the bounding box
+
       object_perception_msgs::BBox bbox;
       geometry_msgs::Point32 pt;
       pt.x = min[0]; pt.y = min[1]; pt.z = min[2]; bbox.point.push_back(pt);
@@ -131,6 +150,10 @@ RecognizerROS<PointT>::respondSrvCall(recognition_srv_definitions::recognize::Re
       pt.x = max[0]; pt.y = max[1]; pt.z = min[2]; bbox.point.push_back(pt);
       pt.x = max[0]; pt.y = max[1]; pt.z = max[2]; bbox.point.push_back(pt);
       response.bbox.push_back(bbox);
+
+      x_len = max[0] - min[0];
+      y_len = max[1] - min[1];
+      z_len = max[2] - min[2];
 
       const float cx = static_cast<float> (img_width) / 2.f; //- 0.5f;
       const float cy = static_cast<float> (img_height) / 2.f; // - 0.5f;
@@ -164,11 +187,37 @@ RecognizerROS<PointT>::respondSrvCall(recognition_srv_definitions::recognize::Re
               max_v = v;
       }
 
+      // Save object pose and BBox
+      shape_msgs::SolidPrimitive bounding_box;
+      bounding_box.type = bounding_box.BOX;
+      bounding_box.dimensions.resize(3);
+      bounding_box.dimensions[0] = x_len;
+      bounding_box.dimensions[1] = y_len;
+      bounding_box.dimensions[2] = z_len;
+
+      ObjInstanceT instance;
+      instance.object_id = models_verified_[j]->id_;
+      instance.pose = pose;
+
+      instance.bbox = bounding_box;
+      instances.push_back(instance);
+
       cv::Point text_start;
       text_start.x = min_u;
       text_start.y = std::max(0, min_v - 10);
       cv::putText(annotated_img, models_verified_[j]->id_, text_start, cv::FONT_HERSHEY_COMPLEX_SMALL, 0.8, cv::Scalar(255,0,255), 1, CV_AA);
       cv::rectangle(annotated_img, cv::Point(min_u, min_v), cv::Point(max_u, max_v), cv::Scalar( 0, 255, 255 ), 2);
+    }
+
+    // Publish all objects poses and BBoxes
+    if(instances.size())
+    {
+        instances_arr_msg.header.stamp = ros::Time::now();
+        instances_arr_msg.header.frame_id = req.cloud.header.frame_id;
+        instances_arr_msg.instances = instances;
+        obj_poses_pub_.publish(instances_arr_msg);
+
+        ROS_DEBUG("Object poses have been published");
     }
 
     sensor_msgs::PointCloud2 recognizedModelsRos;
@@ -368,6 +417,8 @@ RecognizerROS<PointT>::initialize (int argc, char ** argv)
 
     it_.reset(new image_transport::ImageTransport(*n_));
     image_pub_ = it_->advertise("sv_recogniced_object_instances_img", 1, true);
+
+    obj_poses_pub_ = n_->advertise<art_object_recognizer_msgs::InstancesArray>("obj_instances_poses", 1);
 }
 
 }

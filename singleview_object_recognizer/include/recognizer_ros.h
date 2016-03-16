@@ -34,6 +34,7 @@ private:
     image_transport::Publisher image_pub_;
     boost::shared_ptr<ros::NodeHandle> n_;
     ros::Publisher vis_pc_pub_;
+    ros::Publisher obj_poses_pub_;
     ros::ServiceServer recognize_;
     float resolution_;
 
